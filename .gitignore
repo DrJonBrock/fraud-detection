@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+.venv
+.idea/
+.vscode/
+*.log
+
+# Data and models
+data/creditcard.csv
+models/*.pkl
+
+# Notebook checkpoints
+notebooks/.ipynb_checkpoints/
