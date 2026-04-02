@@ -1,11 +1,21 @@
 """
 FastAPI service for fraud detection inference.
 """
+import logging
+import time
 import joblib
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 from typing import List
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+logger = logging.getLogger("fraud_api")
 
 # Load model and scaler at startup
 MODEL_PATH = "models/smote_random_forest.pkl"
@@ -14,15 +24,29 @@ SCALER_PATH = "models/scaler.pkl"
 try:
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
-    print(f"Loaded model from {MODEL_PATH} and scaler from {SCALER_PATH}")
+    logger.info(f"Loaded model from {MODEL_PATH} and scaler from {SCALER_PATH}")
 except Exception as e:
+    logger.exception("Failed to load model/scaler")
     raise RuntimeError(f"Failed to load model/scaler: {e}")
 
 app = FastAPI(
     title="Fraud Detection API",
     description="Detect fraudulent credit card transactions",
-    version="1.0.0"
+    version="1.0.1"
 )
+
+# Record server start time
+start_time = time.time()
+
+# Request logging middleware
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        logger.info(f"Request: {request.method} {request.url.path}")
+        response = await call_next(request)
+        logger.info(f"Response: status={response.status_code}")
+        return response
+
+app.add_middleware(LoggingMiddleware)
 
 class Transaction(BaseModel):
     Time: float = Field(..., description="Seconds since first transaction")
@@ -83,11 +107,13 @@ def predict(transaction: Transaction):
         label = "fraud" if pred == 1 else "legitimate"
         return {"prediction": int(pred), "label": label, "fraud_probability": float(proba)}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("Prediction failed")
+        raise HTTPException(status_code=500, detail="Prediction failed due to internal error")
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    uptime = time.time() - start_time
+    return {"status": "healthy", "uptime_seconds": round(uptime, 2)}
 
 if __name__ == "__main__":
     import uvicorn
